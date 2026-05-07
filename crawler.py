@@ -28,12 +28,14 @@ def normalize(url):
     return urlunparse(p._replace(fragment="", query="")).rstrip("/")
 
 
-def send_to_worker(payload):
+def send_to_worker(payload, url):
     if not WORKER_URL or not INGEST_SECRET:
-        print("Missing WORKER_URL or INGEST_SECRET")
+        print("[CONFIG ERROR] Missing WORKER_URL or SEEGLE_INGEST_SECRET")
         return
 
     try:
+        print(f"[INGEST] Sending → {url}")
+
         r = requests.post(
             WORKER_URL + "/ingest",
             json=payload,
@@ -44,58 +46,90 @@ def send_to_worker(payload):
             timeout=10
         )
 
-        print("ingest status:", r.status_code)
+        print(f"[INGEST] Status {r.status_code} ← {url}")
 
     except Exception as e:
-        print("ingest error:", e)
+        print(f"[INGEST ERROR] {url} → {e}")
 
 
 def crawl():
     count = 0
 
     while queue and count < MAX_PAGES:
+        print("\n" + "-" * 60)
+        print(f"[QUEUE] Size: {len(queue)} | Crawled: {count}")
+
         url, depth = queue.popleft()
         url = normalize(url)
 
-        if url in seen or depth > MAX_DEPTH:
+        print(f"[CURRENT] {url} (depth={depth})")
+
+        if url in seen:
+            print("[SKIP] Already seen")
+            continue
+
+        if depth > MAX_DEPTH:
+            print("[SKIP] Max depth reached")
             continue
 
         seen.add(url)
 
+        print(f"[FETCH] Requesting page...")
+
         try:
             r = requests.get(url, headers=HEADERS, timeout=10)
         except Exception as e:
-            print("fetch error:", e)
+            print(f"[FETCH ERROR] {url} → {e}")
             continue
 
+        print(f"[FETCH] Status: {r.status_code}")
+
         if r.status_code != 200:
+            print("[SKIP] Non-200 response")
             continue
 
         data = parser.parse(r.text)
+
+        print(f"[PARSE] title='{data.get('title','')[:40]}'")
+        print(f"[PARSE] links={len(data.get('links', []))}")
 
         send_to_worker({
             "url": url,
             "title": data.get("title", ""),
             "text": data.get("text", "")
-        })
+        }, url)
 
         count += 1
+
+        print("[CRAWL] Extracting links...")
 
         for link in data.get("links", []):
             if not link:
                 continue
 
-            if link.startswith("#") or "javascript:" in link or "mailto:" in link:
+            if link.startswith("#"):
+                print("[SKIP LINK] fragment")
+                continue
+
+            if "javascript:" in link or "mailto:" in link:
+                print("[SKIP LINK] unsafe scheme")
                 continue
 
             full = normalize(urljoin(url, link))
 
-            if full.startswith("http") and full not in seen:
-                queue.append((full, depth + 1))
+            if not full.startswith("http"):
+                continue
+
+            if full in seen:
+                print(f"[SKIP LINK] already seen → {full}")
+                continue
+
+            queue.append((full, depth + 1))
+            print(f"[QUEUE ADD] {full}")
 
         time.sleep(0.4)
 
-    print("SEEgle crawl complete")
+    print("\nSEEgle crawl complete")
 
 
 if __name__ == "__main__":
