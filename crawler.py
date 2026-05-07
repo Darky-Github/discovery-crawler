@@ -29,17 +29,25 @@ def normalize(url):
 
 
 def send_to_worker(payload):
+    if not WORKER_URL or not INGEST_SECRET:
+        print("Missing WORKER_URL or INGEST_SECRET")
+        return
+
     try:
-        requests.post(
-            WORKER_URL,
+        r = requests.post(
+            WORKER_URL + "/ingest",
             json=payload,
             headers={
-                "x-seegle-secret": INGEST_SECRET
+                "x-seegle-secret": INGEST_SECRET,
+                "Content-Type": "application/json"
             },
             timeout=10
         )
-    except:
-        pass
+
+        print("ingest status:", r.status_code)
+
+    except Exception as e:
+        print("ingest error:", e)
 
 
 def crawl():
@@ -56,7 +64,8 @@ def crawl():
 
         try:
             r = requests.get(url, headers=HEADERS, timeout=10)
-        except:
+        except Exception as e:
+            print("fetch error:", e)
             continue
 
         if r.status_code != 200:
@@ -66,13 +75,13 @@ def crawl():
 
         send_to_worker({
             "url": url,
-            "title": data["title"],
-            "text": data["text"]
+            "title": data.get("title", ""),
+            "text": data.get("text", "")
         })
 
         count += 1
 
-        for link in data["links"]:
+        for link in data.get("links", []):
             if not link:
                 continue
 
