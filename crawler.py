@@ -17,7 +17,7 @@ queue = deque([(u, 0) for u in seed_urls])
 seen = set()
 
 MAX_DEPTH = 3
-MAX_PAGES = 50
+MAX_PAGES = 30
 
 WORKER_URL = os.getenv("WORKER_URL")
 INGEST_SECRET = os.getenv("SEEGLE_INGEST_SECRET")
