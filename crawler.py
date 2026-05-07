@@ -1,13 +1,15 @@
 import requests
-from collections import deque
 import time
-import re
 from urllib.parse import urljoin, urlparse, urlunparse
-from bs4 import BeautifulSoup
+from collections import deque
+import parser
+import os
 
 HEADERS = {"User-Agent": "SEEgleBot/1.0"}
 
-seed_urls = ["https://darky-github.github.io/seed_urls_for_crawlers"]
+seed_urls = [
+    "https://darky-github.github.io/seed_urls_for_crawlers"
+]
 
 queue = deque([(u, 0) for u in seed_urls])
 seen = set()
@@ -15,7 +17,8 @@ seen = set()
 MAX_DEPTH = 3
 MAX_PAGES = 50
 
-WORKER_ENDPOINT = "https://YOUR-WORKER.workers.dev/ingest"
+WORKER_URL = os.getenv("WORKER_URL")
+INGEST_SECRET = os.getenv("SEEGLE_INGEST_SECRET")
 
 
 def normalize(url):
@@ -23,28 +26,14 @@ def normalize(url):
     return urlunparse(p._replace(fragment="", query="")).rstrip("/")
 
 
-def extract(html):
-    soup = BeautifulSoup(html, "html.parser")
-
-    for t in soup(["script", "style"]):
-        t.decompose()
-
-    text = soup.get_text(" ", strip=True)[:6000]
-
-    links = []
-    for a in soup.find_all("a"):
-        href = a.get("href")
-        if href:
-            links.append(href)
-
-    title = soup.title.text.strip() if soup.title else ""
-
-    return title, text, links
-
-
-def send_to_worker(payload):
+def send(data):
     try:
-        requests.post(WORKER_ENDPOINT, json=payload, timeout=10)
+        requests.post(
+            WORKER_URL,
+            json=data,
+            headers={"x-seegle-secret": INGEST_SECRET},
+            timeout=10
+        )
     except:
         pass
 
@@ -69,18 +58,18 @@ def crawl():
         if r.status_code != 200:
             continue
 
-        title, text, links = extract(r.text)
+        data = parser.parse(r.text)
 
-        send_to_worker({
+        send({
             "url": url,
-            "title": title,
-            "text": text
+            "title": data["title"],
+            "text": data["text"]
         })
 
         count += 1
 
-        for l in links:
-            full = normalize(urljoin(url, l))
+        for link in data["links"]:
+            full = normalize(urljoin(url, link))
             if full.startswith("http"):
                 queue.append((full, depth + 1))
 
