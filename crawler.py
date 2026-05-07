@@ -3,46 +3,50 @@ from collections import deque
 import time
 import re
 from urllib.parse import urljoin, urlparse, urlunparse
-from datetime import datetime
-import parser
+from bs4 import BeautifulSoup
 
-HEADERS = {
-    "User-Agent": "SEEgleBot/1.0"
-}
+HEADERS = {"User-Agent": "SEEgleBot/1.0"}
 
-seed_urls = [
-    "https://darky-github.github.io/seed_urls_for_crawlers"
-]
+seed_urls = ["https://darky-github.github.io/seed_urls_for_crawlers"]
 
-queue = deque([(url, 0) for url in seed_urls])
+queue = deque([(u, 0) for u in seed_urls])
+seen = set()
 
 MAX_DEPTH = 3
 MAX_PAGES = 50
 
-seen = set()
-
-INGESTION_ENDPOINT = "https://YOUR_WORKER_URL/ingest"
+WORKER_ENDPOINT = "https://YOUR-WORKER.workers.dev/ingest"
 
 
-def normalize_url(url):
-    parsed = urlparse(url)
-    return urlunparse(parsed._replace(fragment="", query="")).rstrip("/")
+def normalize(url):
+    p = urlparse(url)
+    return urlunparse(p._replace(fragment="", query="")).rstrip("/")
 
 
-def tokenize(text):
-    words = re.findall(r"\b[a-zA-Z0-9]+\b", text.lower())
-    return words
+def extract(html):
+    soup = BeautifulSoup(html, "html.parser")
+
+    for t in soup(["script", "style"]):
+        t.decompose()
+
+    text = soup.get_text(" ", strip=True)[:6000]
+
+    links = []
+    for a in soup.find_all("a"):
+        href = a.get("href")
+        if href:
+            links.append(href)
+
+    title = soup.title.text.strip() if soup.title else ""
+
+    return title, text, links
 
 
-def send_to_worker(doc):
+def send_to_worker(payload):
     try:
-        requests.post(
-            INGESTION_ENDPOINT,
-            json=doc,
-            timeout=10
-        )
-    except Exception as e:
-        print("Ingest failed:", e)
+        requests.post(WORKER_ENDPOINT, json=payload, timeout=10)
+    except:
+        pass
 
 
 def crawl():
@@ -50,7 +54,7 @@ def crawl():
 
     while queue and count < MAX_PAGES:
         url, depth = queue.popleft()
-        url = normalize_url(url)
+        url = normalize(url)
 
         if url in seen or depth > MAX_DEPTH:
             continue
@@ -65,30 +69,22 @@ def crawl():
         if r.status_code != 200:
             continue
 
-        data = parser.parse(r.text)
+        title, text, links = extract(r.text)
 
-        doc = {
-            "id": url,
+        send_to_worker({
             "url": url,
-            "title": data.get("title", ""),
-            "text": data.get("text", ""),
-            "timestamp": datetime.utcnow().isoformat()
-        }
-
-        send_to_worker(doc)
+            "title": title,
+            "text": text
+        })
 
         count += 1
 
-        for link in data["links"]:
-            if not link:
-                continue
-
-            full = normalize_url(urljoin(url, link))
-
-            if full.startswith("http") and full not in seen:
+        for l in links:
+            full = normalize(urljoin(url, l))
+            if full.startswith("http"):
                 queue.append((full, depth + 1))
 
-    print("Crawl complete")
+        time.sleep(0.5)
 
 
 if __name__ == "__main__":
