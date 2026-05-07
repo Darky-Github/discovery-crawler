@@ -9,6 +9,10 @@ jobs:
   crawl:
     runs-on: ubuntu-latest
 
+    env:
+      WORKER_URL: ${{ secrets.WORKER_URL }}
+      SEEGLE_INGEST_SECRET: ${{ secrets.SEEGLE_INGEST_SECRET }}
+
     steps:
       - uses: actions/checkout@v4
 
