@@ -5,7 +5,9 @@ from collections import deque
 import parser
 import os
 
-HEADERS = {"User-Agent": "SEEgleBot/1.0"}
+HEADERS = {
+    "User-Agent": "SEEgleBot/1.0 (DiscoveryCrawler)"
+}
 
 seed_urls = [
     "https://darky-github.github.io/seed_urls_for_crawlers"
@@ -26,12 +28,14 @@ def normalize(url):
     return urlunparse(p._replace(fragment="", query="")).rstrip("/")
 
 
-def send(data):
+def send_to_worker(payload):
     try:
         requests.post(
             WORKER_URL,
-            json=data,
-            headers={"x-seegle-secret": INGEST_SECRET},
+            json=payload,
+            headers={
+                "x-seegle-secret": INGEST_SECRET
+            },
             timeout=10
         )
     except:
@@ -60,7 +64,7 @@ def crawl():
 
         data = parser.parse(r.text)
 
-        send({
+        send_to_worker({
             "url": url,
             "title": data["title"],
             "text": data["text"]
@@ -69,11 +73,20 @@ def crawl():
         count += 1
 
         for link in data["links"]:
+            if not link:
+                continue
+
+            if link.startswith("#") or "javascript:" in link or "mailto:" in link:
+                continue
+
             full = normalize(urljoin(url, link))
-            if full.startswith("http"):
+
+            if full.startswith("http") and full not in seen:
                 queue.append((full, depth + 1))
 
-        time.sleep(0.5)
+        time.sleep(0.4)
+
+    print("SEEgle crawl complete")
 
 
 if __name__ == "__main__":
