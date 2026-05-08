@@ -49,7 +49,7 @@ def send_to_worker(payload, url):
                 "x-seegle-secret": INGEST_SECRET,
                 "Content-Type": "application/json"
             },
-            timeout=20
+            timeout=60
         )
 
         print(f"[INGEST] Status {r.status_code} ← {url}")
