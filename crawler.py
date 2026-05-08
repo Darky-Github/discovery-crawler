@@ -6,7 +6,7 @@ import parser
 import os
 
 HEADERS = {
-    "User-Agent": "SEEgleBot/1.0 (DiscoveryCrawler)"
+    "User-Agent": "SEEgleBot/2.0 (DistributedDiscoveryCrawler)"
 }
 
 seed_urls = [
@@ -14,7 +14,7 @@ seed_urls = [
 ]
 
 queue = deque([(u, 0) for u in seed_urls])
-seen = set()
+queued = set(seed_urls)
 
 MAX_DEPTH = 3
 MAX_PAGES = 30
@@ -25,13 +25,19 @@ INGEST_SECRET = os.getenv("SEEGLE_INGEST_SECRET")
 
 def normalize(url):
     p = urlparse(url)
-    return urlunparse(p._replace(fragment="", query="")).rstrip("/")
+
+    return urlunparse(
+        p._replace(
+            fragment="",
+            query=""
+        )
+    ).rstrip("/")
 
 
 def send_to_worker(payload, url):
     if not WORKER_URL or not INGEST_SECRET:
         print("[CONFIG ERROR] Missing WORKER_URL or SEEGLE_INGEST_SECRET")
-        return
+        return False
 
     try:
         print(f"[INGEST] Sending → {url}")
@@ -43,13 +49,26 @@ def send_to_worker(payload, url):
                 "x-seegle-secret": INGEST_SECRET,
                 "Content-Type": "application/json"
             },
-            timeout=10
+            timeout=20
         )
 
         print(f"[INGEST] Status {r.status_code} ← {url}")
 
+        try:
+            data = r.json()
+
+            if data.get("skipped"):
+                print(f"[DEDUPE] Already indexed → {url}")
+                return False
+
+        except:
+            pass
+
+        return True
+
     except Exception as e:
         print(f"[INGEST ERROR] {url} → {e}")
+        return False
 
 
 def crawl():
@@ -64,20 +83,19 @@ def crawl():
 
         print(f"[CURRENT] {url} (depth={depth})")
 
-        if url in seen:
-            print("[SKIP] Already seen")
-            continue
-
         if depth > MAX_DEPTH:
             print("[SKIP] Max depth reached")
             continue
 
-        seen.add(url)
-
-        print(f"[FETCH] Requesting page...")
+        print("[FETCH] Requesting page...")
 
         try:
-            r = requests.get(url, headers=HEADERS, timeout=10)
+            r = requests.get(
+                url,
+                headers=HEADERS,
+                timeout=15
+            )
+
         except Exception as e:
             print(f"[FETCH ERROR] {url} → {e}")
             continue
@@ -90,16 +108,24 @@ def crawl():
 
         data = parser.parse(r.text)
 
-        print(f"[PARSE] title='{data.get('title','')[:40]}'")
+        print(f"[PARSE] title='{data.get('title', '')[:60]}'")
+        print(f"[PARSE] chunks={len(data.get('chunks', []))}")
         print(f"[PARSE] links={len(data.get('links', []))}")
 
-        send_to_worker({
+        domain = urlparse(url).netloc
+
+        payload = {
             "url": url,
             "title": data.get("title", ""),
-            "text": data.get("text", "")
-        }, url)
+            "chunks": data.get("chunks", []),
+            "domain": domain,
+            "content_length": len(" ".join(data.get("chunks", [])))
+        }
 
-        count += 1
+        indexed = send_to_worker(payload, url)
+
+        if indexed:
+            count += 1
 
         print("[CRAWL] Extracting links...")
 
@@ -108,11 +134,12 @@ def crawl():
                 continue
 
             if link.startswith("#"):
-                print("[SKIP LINK] fragment")
                 continue
 
-            if "javascript:" in link or "mailto:" in link:
-                print("[SKIP LINK] unsafe scheme")
+            if "javascript:" in link:
+                continue
+
+            if "mailto:" in link:
                 continue
 
             full = normalize(urljoin(url, link))
@@ -120,16 +147,18 @@ def crawl():
             if not full.startswith("http"):
                 continue
 
-            if full in seen:
-                print(f"[SKIP LINK] already seen → {full}")
+            if full in queued:
                 continue
 
+            queued.add(full)
+
             queue.append((full, depth + 1))
+
             print(f"[QUEUE ADD] {full}")
 
-        time.sleep(0.4)
+        time.sleep(0.5)
 
-    print("\nSEEgle crawl complete")
+    print("\nSEEgle distributed crawl complete")
 
 
 if __name__ == "__main__":
