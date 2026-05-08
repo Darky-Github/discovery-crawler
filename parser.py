@@ -1,7 +1,7 @@
 from bs4 import BeautifulSoup
 import re
 
-CHUNK_SIZE = 1000
+CHUNK_SIZE = 1800
 
 def clean_text(text):
     text = re.sub(r"\s+", " ", text)
