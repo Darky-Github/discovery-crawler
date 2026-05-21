@@ -6,11 +6,11 @@ import parser
 import os
 
 HEADERS = {
-    "User-Agent": "SEEgleBot/2.0 (DistributedDiscoveryCrawler)"
+    "User-Agent": "SEEgleBot/2.0 (SEEgle No-AI Search Engine)"
 }
 
 seed_urls = [
-    "https://darky-github.github.io/seed_urls_for_crawlers"
+    # "https://darky-github.github.io/seed_urls_for_crawlers"
 ]
 
 queue = deque([(u, 0) for u in seed_urls])
@@ -58,7 +58,7 @@ def send_to_worker(payload, url):
             data = r.json()
 
             if data.get("skipped"):
-                print(f"[DEDUPE] Already indexed → {url}")
+                print(f"[DEDUPLICATION] Already indexed → {url}")
                 return False
 
         except:
@@ -87,7 +87,7 @@ def crawl():
             print("[SKIP] Max depth reached")
             continue
 
-        print("[FETCH] Requesting page...")
+        print("[FETCH] Requesting page")
 
         try:
             r = requests.get(
@@ -127,7 +127,7 @@ def crawl():
         if indexed:
             count += 1
 
-        print("[CRAWL] Extracting links...")
+        print("[CRAWL] Extracting links")
 
         for link in data.get("links", []):
             if not link:
@@ -158,7 +158,7 @@ def crawl():
 
         time.sleep(0.5)
 
-    print("\nSEEgle distributed crawl complete")
+    print("\n crawl complete")
 
 
 if __name__ == "__main__":
